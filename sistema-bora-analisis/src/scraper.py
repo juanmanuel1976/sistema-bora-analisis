@@ -361,5 +361,23 @@ def main():
     print(f"- Organismos detectados: {len(stats['organismos_detectados'])}")
 
 if __name__ == "__main__":
-
+    import os
+    from http.server import HTTPServer, SimpleHTTPRequestHandler
+    
+    # Ejecutar scraping PRIMERO
     main()
+    
+    # Mantener servicio web activo para Render
+    port = int(os.environ.get('PORT', 10000))
+    
+    # Cambiar directorio para servir archivos JSON generados
+    os.chdir('data')
+    
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"Servidor web activo en puerto {port}")
+    print(f"Sirviendo archivos desde: {os.getcwd()}")
+    print(f"Acceso: https://tu-app.onrender.com")
+    
+    # Mantener servicio activo indefinidamente
+    server.serve_forever()
+
