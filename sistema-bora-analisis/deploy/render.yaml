@@ -1,0 +1,15 @@
+﻿services:
+  - type: web
+    name: bora-analysis-system
+    env: python
+    buildCommand: pip install -r config/requirements.txt
+    startCommand: python src/scraper.py --test --limit=10
+    plan: starter
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATA_DIRECTORY 
+        value: data
+      - key: PYTHONPATH
+        value: /opt/render/project/repo
+    healthCheckPath: /
