@@ -234,7 +234,7 @@ class BoraScraperCore:
         print(f"Scraping fecha: {fecha_str} (modo agnóstico)")
         
         # Empezar desde número base más conservador
-        numero_actual = 280000  # Número más bajo para asegurar completitud
+        numero_actual = 300720  # Número más bajo para asegurar completitud
         medidas_encontradas = 0
         medidas_consecutivas_404 = 0
         max_404_consecutivos = 50  # Más tolerante para no perder medidas
@@ -361,4 +361,5 @@ def main():
     print(f"- Organismos detectados: {len(stats['organismos_detectados'])}")
 
 if __name__ == "__main__":
+
     main()
