@@ -1,10 +1,12 @@
-﻿import os
+import os
 import json
 import re
 import google.generativeai as genai
 from sentence_transformers import SentenceTransformer
 from pathlib import Path
 from datetime import datetime
+import tempfile
+import ftplib
 
 class TripleAnalyzerAgnostic:
     def __init__(self):
@@ -12,7 +14,6 @@ class TripleAnalyzerAgnostic:
         api_key = os.getenv('GEMINI_API_KEY')
         if not api_key:
             print("ERROR: GEMINI_API_KEY no encontrada en variables de entorno")
-            print("Configurala como variable de entorno o en archivo .env")
             return
         
         genai.configure(api_key=api_key)
@@ -49,8 +50,6 @@ class TripleAnalyzerAgnostic:
     
     def extract_literal_data_agnostic(self, medida_data):
         """Análisis literal agnóstico - sin categorías predefinidas"""
-        
-        # Datos directos del scraping (objetivos)
         literal_data = {
             'numero_medida': medida_data['numero_medida'],
             'fecha_boletin': medida_data['fecha_boletin'],
@@ -59,23 +58,17 @@ class TripleAnalyzerAgnostic:
             'tiene_pdfs': medida_data.get('tiene_pdf', False),
             'cantidad_pdfs': len(medida_data.get('pdf_urls', [])),
             'timestamp_scraping': medida_data.get('timestamp_scraping', ''),
-            
-            # Estructura detectada por el scraper
             'estructura_detectada': medida_data.get('estructura_detectada', {}),
             'metadatos_scraping': medida_data.get('metadatos_extraidos', {}),
             'elementos_detectados_scraper': medida_data.get('elementos_detectados', []),
-            
-            # Análisis IA de elementos sin predefinir categorías
             'elementos_detectados_ia': self.detect_elements_with_ai(medida_data),
             'estadisticas_texto': self.calculate_text_stats(medida_data)
         }
-        
         return literal_data
     
     def detect_elements_with_ai(self, medida_data):
         """Usar IA para detectar elementos sin categorías predefinidas"""
         texto_completo = medida_data.get('texto_completo_limpio', '')
-        
         if not texto_completo or len(texto_completo) < 50:
             return {"error": "Texto insuficiente para análisis IA"}
         
@@ -99,7 +92,6 @@ class TripleAnalyzerAgnostic:
 
         NO inventes. Solo extrae lo que esté literalmente presente.
         """
-        
         try:
             response = self.model.generate_content(prompt)
             result = json.loads(response.text.strip())
@@ -111,7 +103,6 @@ class TripleAnalyzerAgnostic:
         """Estadísticas objetivas del texto"""
         texto = medida_data.get('texto_completo_limpio', '')
         estructura = medida_data.get('estructura_detectada', {})
-        
         stats = {
             'longitud_total_caracteres': len(texto),
             'longitud_total_palabras': len(texto.split()),
@@ -120,36 +111,23 @@ class TripleAnalyzerAgnostic:
             'longitud_considerandos': 0,
             'longitud_dispositivo': 0
         }
-        
-        # Longitudes de secciones específicas
         if 'considerandos' in estructura:
             stats['longitud_considerandos'] = estructura['considerandos'].get('longitud_caracteres', 0)
-        
         if 'dispositivo' in estructura:
             stats['longitud_dispositivo'] = estructura['dispositivo'].get('longitud_caracteres', 0)
         elif 'articulos' in estructura:
             stats['longitud_dispositivo'] = estructura['articulos'].get('longitud_caracteres', 0)
-        
-        # Ratio considerandos vs dispositivo
         if stats['longitud_dispositivo'] > 0:
             stats['ratio_justificacion_accion'] = stats['longitud_considerandos'] / stats['longitud_dispositivo']
-        
         return stats
     
     def analyze_critical_agnostic(self, medida_data):
         """Análisis crítico agnóstico - especial atención a considerandos"""
-        
         estructura = medida_data.get('estructura_detectada', {})
-        
-        # Verificar si hay considerandos marcados para análisis crítico
         considerandos_data = estructura.get('considerandos', {})
         requiere_critico = considerandos_data.get('requiere_analisis_critico', False)
-        
-        # Construir texto para análisis
         texto_considerandos = considerandos_data.get('contenido', '')
         texto_dispositivo = ''
-        
-        # Obtener dispositivo (artículos, resolución, etc.)
         for seccion in ['dispositivo', 'articulos']:
             if seccion in estructura:
                 texto_dispositivo = estructura[seccion].get('contenido', '')
@@ -189,22 +167,17 @@ class TripleAnalyzerAgnostic:
           "señales_alerta": ["aspectos específicos que requieren escrutinio adicional"]
         }}
         """
-        
         try:
             response = self.model.generate_content(prompt)
             result = json.loads(response.text.strip())
-            
-            # Agregar metadatos del análisis
             result['considerandos_analizados_criticamente'] = requiere_critico
             result['ratio_justificacion_accion'] = self.calculate_justification_ratio(medida_data)
-            
             return result
         except Exception as e:
             return {"error": f"Error análisis crítico: {str(e)}"}
     
     def devil_advocate_agnostic(self, medida_data):
         """Abogado del diablo agnóstico - cuestionamiento sistemático"""
-        
         texto_completo = medida_data.get('texto_completo_limpio', '')
         titulo = medida_data.get('titulo_raw', '')
         
@@ -212,7 +185,6 @@ class TripleAnalyzerAgnostic:
         Actúa como abogado del diablo. Cuestiona MALICIOSAMENTE esta medida oficial:
         
         TÍTULO: {titulo}
-        
         CONTENIDO: {texto_completo[:2000]}
         
         Pregúntate con máxima suspicacia, SIN categorías predefinidas:
@@ -238,7 +210,6 @@ class TripleAnalyzerAgnostic:
           "red_flags_principales": ["señales de alerta más importantes"]
         }}
         """
-        
         try:
             response = self.model.generate_content(prompt)
             result = json.loads(response.text.strip())
@@ -248,9 +219,7 @@ class TripleAnalyzerAgnostic:
     
     def semantic_analysis(self, medida_data):
         """Análisis semántico agnóstico para detectar patrones emergentes"""
-        
         texto_completo = medida_data.get('texto_completo_limpio', '')
-        
         prompt = f"""
         Análisis semántico agnóstico de medida oficial.
         NO uses categorías predefinidas. Detecta patrones emergentes:
@@ -277,7 +246,6 @@ class TripleAnalyzerAgnostic:
           "categoria_emergente": "categoría que emerge del análisis semántico"
         }}
         """
-        
         try:
             response = self.model.generate_content(prompt)
             result = json.loads(response.text.strip())
@@ -288,46 +256,37 @@ class TripleAnalyzerAgnostic:
     def calculate_justification_ratio(self, medida_data):
         """Calcular ratio entre justificación y acción"""
         estructura = medida_data.get('estructura_detectada', {})
-        
         len_considerandos = 0
         len_dispositivo = 0
-        
         if 'considerandos' in estructura:
             len_considerandos = estructura['considerandos'].get('longitud_caracteres', 0)
-        
         for seccion in ['dispositivo', 'articulos']:
             if seccion in estructura:
                 len_dispositivo = estructura[seccion].get('longitud_caracteres', 0)
                 break
-        
         if len_dispositivo > 0:
             return {
                 'ratio_numerico': len_considerandos / len_dispositivo,
                 'interpretacion': 'justificacion_extensa' if len_considerandos / len_dispositivo > 2 else 'justificacion_proporcionada'
             }
-        
         return {'ratio_numerico': 0, 'interpretacion': 'sin_dispositivo_claro'}
     
     def generate_embeddings_agnostic(self, medida_data):
         """Generar embeddings semánticos agnósticos"""
         try:
-            # Texto completo limpio
             texto_completo = medida_data.get('texto_completo_limpio', '')
             if not texto_completo:
                 return {"error": "Sin texto para generar embeddings"}
             
             embedding_completo = self.encoder.encode(texto_completo).tolist()
             
-            # Embeddings por secciones detectadas
             estructura = medida_data.get('estructura_detectada', {})
             embeddings_secciones = {}
-            
             for seccion, datos in estructura.items():
                 contenido = datos.get('contenido', '')
                 if contenido and len(contenido) > 20:
                     embeddings_secciones[f'embedding_{seccion}'] = self.encoder.encode(contenido).tolist()
             
-            # Embedding del título
             titulo = medida_data.get('titulo_raw', '')
             embedding_titulo = self.encoder.encode(titulo).tolist() if titulo else []
             
@@ -335,7 +294,7 @@ class TripleAnalyzerAgnostic:
                 'embedding_completo': embedding_completo,
                 'embedding_titulo': embedding_titulo,
                 'embeddings_por_seccion': embeddings_secciones,
-                'dimension': len(embedding_completo),
+                'dimension': len(embedding_completo) if embedding_completo else 0,
                 'metadatos_embedding': {
                     'modelo_usado': 'paraphrase-multilingual-MiniLM-L12-v2',
                     'secciones_vectorizadas': list(embeddings_secciones.keys()),
@@ -374,9 +333,7 @@ class BatchAnalyzer:
             local_raw_path = None
             try:
                 print(f"Procesando {i}/{len(files_to_analyze)}: {filename}")
-                
                 local_raw_path = self.download_from_hostinger(f'raw/{filename}')
-                
                 with open(local_raw_path, 'r', encoding='utf-8') as f:
                     medida_data = json.load(f)
                 
@@ -384,7 +341,6 @@ class BatchAnalyzer:
                 resultados.append(analysis)
                 
                 analysis_filename = Path(filename).stem + "_analysis_agnostic.json"
-                import tempfile
                 temp_dir = tempfile.gettempdir()
                 local_analysis_path = os.path.join(temp_dir, analysis_filename)
                 
@@ -410,7 +366,6 @@ class BatchAnalyzer:
 
     def list_hostinger_files(self, remote_dir):
         """Lista archivos en un directorio de Hostinger."""
-        import ftplib
         FTP_HOST = "ftp.agoraenlared.com"
         FTP_USER = "u112219758.boria"
         FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
@@ -428,8 +383,6 @@ class BatchAnalyzer:
 
     def download_from_hostinger(self, remote_path):
         """Descarga un archivo desde Hostinger a una carpeta temporal."""
-        import ftplib
-        import tempfile
         FTP_HOST = "ftp.agoraenlared.com"
         FTP_USER = "u112219758.boria"
         FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
@@ -450,7 +403,6 @@ class BatchAnalyzer:
 
     def upload_analysis_to_hostinger(self, local_filepath):
         """Sube un archivo de análisis a la carpeta 'analyzed' en Hostinger."""
-        import ftplib
         FTP_HOST = "ftp.agoraenlared.com"
         FTP_USER = "u112219758.boria"
         FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
@@ -469,49 +421,42 @@ class BatchAnalyzer:
         print(f"✓ Análisis '{filename}' subido a Hostinger.")
     
     def save_batch_summary(self, resultados, errores):
-    """Crea el resumen del análisis y lo sube a Hostinger."""
-    import tempfile
-    import ftplib
+        """Crea el resumen del análisis y lo sube a Hostinger."""
+        if not resultados:
+            return
 
-    if not resultados:
-        return # No hay nada que resumir
+        summary = {
+            'fecha_analisis_batch': datetime.now().isoformat(),
+            'enfoque': 'agnostico_sin_presupuestos',
+            'total_medidas_analizadas': len(resultados),
+            'total_errores': len(errores),
+            'estadisticas_generales': self.calculate_batch_stats(resultados),
+            'errores_detalle': errores
+        }
+        
+        temp_dir = tempfile.gettempdir()
+        summary_path = os.path.join(temp_dir, "batch_analysis_summary_agnostic.json")
 
-    summary = {
-        'fecha_analisis_batch': datetime.now().isoformat(),
-        'enfoque': 'agnostico_sin_presupuestos',
-        'total_medidas_analizadas': len(resultados),
-        'total_errores': len(errores),
-        'estadisticas_generales': self.calculate_batch_stats(resultados),
-        'errores_detalle': errores
-    }
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+            
+        print("Subiendo resumen del análisis a Hostinger...")
+        try:
+            FTP_HOST = "ftp.agoraenlared.com"
+            FTP_USER = "u112219758.boria"
+            FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
 
-    # Guardar el resumen en un archivo temporal local
-    temp_dir = tempfile.gettempdir()
-    summary_path = os.path.join(temp_dir, "batch_analysis_summary_agnostic.json")
-
-    with open(summary_path, 'w', encoding='utf-8') as f:
-        json.dump(summary, f, ensure_ascii=False, indent=2)
-
-    # Subir el archivo de resumen a Hostinger
-    print("Subiendo resumen del análisis a Hostinger...")
-    try:
-        FTP_HOST = "ftp.agoraenlared.com"
-        FTP_USER = "u112219758.boria"
-        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
-
-        ftp = ftplib.FTP(FTP_HOST)
-        ftp.login(FTP_USER, FTP_PASS)
-
-        # El resumen va en la carpeta 'analyzed' junto con los otros análisis
-        ftp.cwd('data/analyzed') 
-
-        with open(summary_path, 'rb') as f:
-            ftp.storbinary(f'STOR {Path(summary_path).name}', f)
-
-        ftp.quit()
-        print(f"✓ Resumen batch subido a Hostinger.")
-    except Exception as e:
-        print(f"✗ Error al subir el resumen batch: {e}")
+            ftp = ftplib.FTP(FTP_HOST)
+            ftp.login(FTP_USER, FTP_PASS)
+            ftp.cwd('data/analyzed')
+            
+            with open(summary_path, 'rb') as f:
+                ftp.storbinary(f'STOR {Path(summary_path).name}', f)
+            
+            ftp.quit()
+            print(f"✓ Resumen batch subido a Hostinger.")
+        except Exception as e:
+            print(f"✗ Error al subir el resumen batch: {e}")
     
     def calculate_batch_stats(self, resultados):
         """Estadísticas generales del batch"""
@@ -527,32 +472,26 @@ class BatchAnalyzer:
         }
         
         for resultado in resultados:
-            # Considerandos
             literal = resultado.get('analisis_literal', {})
             if literal.get('estadisticas_texto', {}).get('tiene_considerandos'):
                 stats['medidas_con_considerandos'] += 1
-            
-            # PDFs
             if literal.get('tiene_pdfs'):
                 stats['medidas_con_pdfs'] += 1
             
-            # Organismos (desde IA)
             elementos_ia = literal.get('elementos_detectados_ia', {})
             entidades = elementos_ia.get('entidades_mencionadas', [])
-            stats['organismos_detectados'].update(entidades)
+            if entidades:
+                stats['organismos_detectados'].update(entidades)
             
-            # Temas emergentes
             semantico = resultado.get('analisis_semantico', {})
             categoria = semantico.get('categoria_emergente', 'sin_clasificar')
             stats['temas_emergentes'][categoria] = stats['temas_emergentes'].get(categoria, 0) + 1
             
-            # Niveles de riesgo
             diablo = resultado.get('analisis_abogado_diablo', {})
             riesgo = diablo.get('nivel_riesgo_democratico', 'bajo')
             if riesgo in stats['niveles_riesgo']:
                 stats['niveles_riesgo'][riesgo] += 1
         
-        # Convertir set a lista para JSON
         stats['organismos_detectados'] = sorted(list(stats['organismos_detectados']))
         
         return stats
@@ -565,11 +504,9 @@ def main():
     resultado = batch_analyzer.analyze_all_measures_in_directory()
     
     print(f"\n=== ANÁLISIS COMPLETADO ===")
-    print(f"Medidas analizadas: {resultado['total_analizadas']}")
-    print(f"Errores: {resultado['total_errores']}")
+    print(f"Medidas analizadas: {resultado.get('total_analizadas', 0)}")
+    print(f"Errores: {resultado.get('total_errores', 0)}")
     print("Revisá los archivos *_analysis_agnostic.json para ver resultados detallados")
 
 if __name__ == "__main__":
-
     main()
-
