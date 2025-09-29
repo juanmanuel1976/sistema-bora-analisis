@@ -318,12 +318,69 @@ class BoraScraperCore:
         return total_medidas
 
     def save_medida(self, medida_data):
-        """Guardar medida en archivo JSON"""
+        """Guardar medida localmente Y subirla a Hostinger."""
         filename = f"medida_{medida_data['numero_medida']}_{medida_data['fecha_boletin'].replace('-', '')}.json"
-        filepath = self.data_dir / filename
         
+        # --- Usa la carpeta temporal del sistema para el archivo local ---
+        # Esto evita problemas si el disco de Render no es persistente
+        import tempfile
+        temp_dir = tempfile.gettempdir()
+        filepath = os.path.join(temp_dir, filename)
+
+        # Guardar en archivo temporal
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(medida_data, f, ensure_ascii=False, indent=2)
+        
+        # Subir a Hostinger desde el archivo temporal
+        print(f"Guardado localmente en: {filepath}")
+        self.upload_to_hostinger(filepath)
+
+    def upload_to_hostinger(self, local_filepath):
+        """Subir archivo a Hostinger vía FTP."""
+        import ftplib
+        from pathlib import Path
+
+        # --- Configuración FTP ---
+        FTP_HOST = "ftp.agoraenlared.com"
+        FTP_USER = "u112219758.boria"
+        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?") # Usa variable de entorno o la contraseña directa
+
+        if not FTP_PASS:
+            print("ADVERTENCIA: La contraseña FTP de Hostinger no está configurada.")
+            return False
+
+        try:
+            ftp = ftplib.FTP(FTP_HOST)
+            ftp.login(FTP_USER, FTP_PASS)
+
+            # Navegar a la carpeta correcta en Hostinger
+            # La cuenta FTP 'boria' ya apunta a /public_html/boria
+            target_dir = 'data/raw'
+            try:
+                ftp.cwd(target_dir)
+            except ftplib.error_perm:
+                # Si falla, es porque los directorios no existen. Los creamos.
+                print(f"Directorio '{target_dir}' no encontrado, creando...")
+                base_dir, sub_dir = target_dir.split('/')
+                try:
+                    ftp.mkd(base_dir)
+                except ftplib.error_perm:
+                    pass # El directorio base ya existe
+                ftp.mkd(target_dir)
+                ftp.cwd(target_dir)
+
+            # Subir el archivo
+            filename = Path(local_filepath).name
+            with open(local_filepath, 'rb') as f:
+                ftp.storbinary(f'STOR {filename}', f)
+            
+            ftp.quit()
+            print(f"✓ Archivo '{filename}' subido a Hostinger exitosamente.")
+            return True
+
+        except Exception as e:
+            print(f"✗ ERROR al subir a Hostinger por FTP: {e}")
+            return False
 
     def get_scraping_stats(self):
         """Obtener estadísticas del scraping realizado"""
@@ -400,6 +457,7 @@ if __name__ == "__main__":
     
     # Mantener servicio activo indefinidamente
     server.serve_forever()
+
 
 
 
