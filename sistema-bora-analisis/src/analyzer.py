@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 import os
 import json
 import re
@@ -17,7 +19,7 @@ class TripleAnalyzerAgnostic:
             return
         
         genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        self.model = genai.GenerativeModel('gemini-2.0-flash')
         
         # Configurar encoder para embeddings
         try:
@@ -25,7 +27,16 @@ class TripleAnalyzerAgnostic:
             print("✓ Analyzer agnóstico inicializado correctamente")
         except Exception as e:
             print(f"Error inicializando encoder: {e}")
-    
+    def _extract_json_from_response(self, response):
+        """Extrae JSON de bloques markdown de Gemini"""
+        import re
+        text = response.text.strip()
+        # Buscar JSON dentro de ```json ... ```
+        match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        else:
+            return json.loads(text)
     def analyze_medida(self, medida_data):
         """Análisis triple completo de una medida - ENFOQUE AGNÓSTICO"""
         print(f"Analizando medida {medida_data['numero_medida']} con enfoque agnóstico...")
@@ -94,7 +105,7 @@ class TripleAnalyzerAgnostic:
         """
         try:
             response = self.model.generate_content(prompt)
-            result = json.loads(response.text.strip())
+            result = self._extract_json_from_response(response)
             return result
         except Exception as e:
             return {"error": f"Error detección IA: {str(e)}"}
@@ -169,7 +180,7 @@ class TripleAnalyzerAgnostic:
         """
         try:
             response = self.model.generate_content(prompt)
-            result = json.loads(response.text.strip())
+            result = self._extract_json_from_response(response)
             result['considerandos_analizados_criticamente'] = requiere_critico
             result['ratio_justificacion_accion'] = self.calculate_justification_ratio(medida_data)
             return result
@@ -212,7 +223,7 @@ class TripleAnalyzerAgnostic:
         """
         try:
             response = self.model.generate_content(prompt)
-            result = json.loads(response.text.strip())
+            result = self._extract_json_from_response(response)
             return result
         except Exception as e:
             return {"error": f"Error abogado diablo: {str(e)}"}
@@ -248,7 +259,7 @@ class TripleAnalyzerAgnostic:
         """
         try:
             response = self.model.generate_content(prompt)
-            result = json.loads(response.text.strip())
+            result = self._extract_json_from_response(response)
             return result
         except Exception as e:
             return {"error": f"Error análisis semántico: {str(e)}"}
