@@ -171,7 +171,7 @@ class BoraScraperCore:
         # Buscar elementos con palabras clave relacionadas a autoridad
         palabras_autoridad = ['firmado', 'firma', 'suscribe', 'autoriza', 'designa', 'nombra']
         for palabra in palabras_autoridad:
-            elementos_con_palabra = soup.find_all(text=re.compile(palabra, re.IGNORECASE))
+            elementos_con_palabra = soup.find_all(string=re.compile(palabra, re.IGNORECASE))
             for elemento in elementos_con_palabra:
                 parent = elemento.parent if elemento.parent else elemento
                 elementos_detectados.append({
@@ -401,6 +401,7 @@ if __name__ == "__main__":
     
     # Mantener servicio activo indefinidamente
     server.serve_forever()
+
 
 
 
