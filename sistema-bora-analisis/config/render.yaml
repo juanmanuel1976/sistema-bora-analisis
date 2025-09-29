@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: bora-analysis-api
+    env: python
+    plan: free
+    buildCommand: pip install -r config/requirements.txt
+    startCommand: python src/api.py
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: HOSTINGER_FTP_PASSWORD
+        sync: false
+      - key: PYTHONPATH
+        value: /opt/render/project/src/
