@@ -48,7 +48,7 @@ class BoraScraperCore:
                 'fecha_boletin': fecha_str,
                 'url': url,
                 'titulo_raw': '',
-                'contenido_html_completo': str(soup),
+                'contenido_html_completo': self.extract_relevant_content_only(soup),
                 'texto_completo_limpio': '',
                 'estructura_detectada': {},
                 'metadatos_extraidos': {},
@@ -189,6 +189,27 @@ class BoraScraperCore:
         if parent:
             return parent.get_text(strip=True)
         return ""
+        
+    def extract_relevant_content_only(self, soup):
+        """Extraer SOLO los divs con contenido útil de la medida"""
+        contenido_util = {}
+        
+        # Extraer título
+        titulo_div = soup.find('div', id='tituloDetalleAviso')
+        if titulo_div:
+            contenido_util['titulo'] = str(titulo_div)
+        
+        # Extraer cuerpo principal
+        cuerpo_div = soup.find('div', id='cuerpoDetalleAviso')
+        if cuerpo_div:
+            contenido_util['cuerpo'] = str(cuerpo_div)
+        
+        # Extraer anexos (si existen)
+        anexos_div = soup.find('div', id='anexosDiv')
+        if anexos_div:
+            contenido_util['anexos'] = str(anexos_div)
+        
+        return contenido_util
 
     def extract_all_metadata(self, soup):
         """Extraer TODOS los metadatos sin predefinir categorías"""
@@ -380,5 +401,6 @@ if __name__ == "__main__":
     
     # Mantener servicio activo indefinidamente
     server.serve_forever()
+
 
 
