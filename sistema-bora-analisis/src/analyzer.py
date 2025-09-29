@@ -351,72 +351,167 @@ class BatchAnalyzer:
     def __init__(self):
         self.analyzer = TripleAnalyzerAgnostic()
         
-    def analyze_all_measures_in_directory(self, data_dir="data"):
-        """Analizar todas las medidas con enfoque agnóstico"""
-        data_path = Path(data_dir)
+    def analyze_all_measures_in_directory(self):
+        """Descarga, analiza y vuelve a subir las medidas desde Hostinger."""
+        print("Iniciando análisis batch desde Hostinger...")
         
-        if not data_path.exists():
-            print(f"Directorio {data_dir} no existe")
-            return
+        raw_files = self.list_hostinger_files('raw')
+        analyzed_files = self.list_hostinger_files('analyzed')
         
-        # Buscar archivos de medidas (raw data)
-        medida_files = [f for f in data_path.glob("medida_*.json") if not f.name.endswith("_analysis.json")]
-        print(f"Encontrados {len(medida_files)} archivos de medidas para analizar")
+        analyzed_stems = {Path(f).stem.replace('_analysis_agnostic', '') for f in analyzed_files}
+        files_to_analyze = [f for f in raw_files if Path(f).stem not in analyzed_stems]
+        
+        if not files_to_analyze:
+            print("No hay nuevas medidas para analizar. Todo está al día.")
+            return {'total_analizadas': 0, 'total_errores': 0}
+            
+        print(f"Se encontraron {len(files_to_analyze)} nuevas medidas para analizar.")
         
         resultados = []
         errores = []
         
-        for i, medida_file in enumerate(medida_files, 1):
+        for i, filename in enumerate(files_to_analyze, 1):
+            local_raw_path = None
             try:
-                print(f"Analizando {i}/{len(medida_files)}: {medida_file.name}")
+                print(f"Procesando {i}/{len(files_to_analyze)}: {filename}")
                 
-                with open(medida_file, 'r', encoding='utf-8') as f:
+                local_raw_path = self.download_from_hostinger(f'raw/{filename}')
+                
+                with open(local_raw_path, 'r', encoding='utf-8') as f:
                     medida_data = json.load(f)
                 
-                # Análisis agnóstico completo
                 analysis = self.analyzer.analyze_medida(medida_data)
                 resultados.append(analysis)
                 
-                # Guardar análisis individual
-                analysis_filename = medida_file.stem + "_analysis_agnostic.json"
-                analysis_path = data_path / analysis_filename
+                analysis_filename = Path(filename).stem + "_analysis_agnostic.json"
+                import tempfile
+                temp_dir = tempfile.gettempdir()
+                local_analysis_path = os.path.join(temp_dir, analysis_filename)
                 
-                with open(analysis_path, 'w', encoding='utf-8') as f:
+                with open(local_analysis_path, 'w', encoding='utf-8') as f:
                     json.dump(analysis, f, ensure_ascii=False, indent=2)
                 
-                print(f"✓ Análisis guardado: {analysis_filename}")
+                self.upload_analysis_to_hostinger(local_analysis_path)
                 
             except Exception as e:
-                error_info = f"Error analizando {medida_file}: {e}"
+                error_info = f"Error procesando {filename}: {e}"
                 errores.append(error_info)
                 print(f"✗ {error_info}")
+            finally:
+                if local_raw_path and os.path.exists(local_raw_path):
+                    os.remove(local_raw_path)
         
-        # Guardar resumen de batch
-        self.save_batch_summary(resultados, errores, data_path)
+        self.save_batch_summary(resultados, errores)
         
         return {
             'total_analizadas': len(resultados),
-            'total_errores': len(errores),
-            'resultados': resultados,
-            'errores': errores
+            'total_errores': len(errores)
         }
+
+    def list_hostinger_files(self, remote_dir):
+        """Lista archivos en un directorio de Hostinger."""
+        import ftplib
+        FTP_HOST = "ftp.agoraenlared.com"
+        FTP_USER = "u112219758.boria"
+        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
+        
+        try:
+            ftp = ftplib.FTP(FTP_HOST)
+            ftp.login(FTP_USER, FTP_PASS)
+            ftp.cwd(f'data/{remote_dir}')
+            files = ftp.nlst()
+            ftp.quit()
+            return [f for f in files if f not in ('.', '..')]
+        except Exception as e:
+            print(f"Error listando archivos en Hostinger: {e}")
+            return []
+
+    def download_from_hostinger(self, remote_path):
+        """Descarga un archivo desde Hostinger a una carpeta temporal."""
+        import ftplib
+        import tempfile
+        FTP_HOST = "ftp.agoraenlared.com"
+        FTP_USER = "u112219758.boria"
+        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
+        
+        temp_dir = tempfile.gettempdir()
+        local_filepath = os.path.join(temp_dir, Path(remote_path).name)
+        
+        ftp = ftplib.FTP(FTP_HOST)
+        ftp.login(FTP_USER, FTP_PASS)
+        
+        full_remote_path = f'data/{remote_path}'
+        with open(local_filepath, 'wb') as f:
+            ftp.retrbinary(f'RETR {full_remote_path}', f.write)
+        
+        ftp.quit()
+        print(f"✓ Archivo '{Path(remote_path).name}' descargado a temporal.")
+        return local_filepath
+
+    def upload_analysis_to_hostinger(self, local_filepath):
+        """Sube un archivo de análisis a la carpeta 'analyzed' en Hostinger."""
+        import ftplib
+        FTP_HOST = "ftp.agoraenlared.com"
+        FTP_USER = "u112219758.boria"
+        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
+        
+        ftp = ftplib.FTP(FTP_HOST)
+        ftp.login(FTP_USER, FTP_PASS)
+        
+        target_dir = 'data/analyzed'
+        ftp.cwd(target_dir)
+        
+        filename = Path(local_filepath).name
+        with open(local_filepath, 'rb') as f:
+            ftp.storbinary(f'STOR {filename}', f)
+        
+        ftp.quit()
+        print(f"✓ Análisis '{filename}' subido a Hostinger.")
     
-    def save_batch_summary(self, resultados, errores, data_path):
-        """Guardar resumen del análisis batch"""
-        summary = {
-            'fecha_analisis_batch': datetime.now().isoformat(),
-            'enfoque': 'agnostico_sin_presupuestos',
-            'total_medidas_analizadas': len(resultados),
-            'total_errores': len(errores),
-            'estadisticas_generales': self.calculate_batch_stats(resultados),
-            'errores_detalle': errores
-        }
-        
-        summary_path = data_path / "batch_analysis_summary_agnostic.json"
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
-        
-        print(f"✓ Resumen batch guardado: {summary_path}")
+    def save_batch_summary(self, resultados, errores):
+    """Crea el resumen del análisis y lo sube a Hostinger."""
+    import tempfile
+    import ftplib
+
+    if not resultados:
+        return # No hay nada que resumir
+
+    summary = {
+        'fecha_analisis_batch': datetime.now().isoformat(),
+        'enfoque': 'agnostico_sin_presupuestos',
+        'total_medidas_analizadas': len(resultados),
+        'total_errores': len(errores),
+        'estadisticas_generales': self.calculate_batch_stats(resultados),
+        'errores_detalle': errores
+    }
+
+    # Guardar el resumen en un archivo temporal local
+    temp_dir = tempfile.gettempdir()
+    summary_path = os.path.join(temp_dir, "batch_analysis_summary_agnostic.json")
+
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
+
+    # Subir el archivo de resumen a Hostinger
+    print("Subiendo resumen del análisis a Hostinger...")
+    try:
+        FTP_HOST = "ftp.agoraenlared.com"
+        FTP_USER = "u112219758.boria"
+        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
+
+        ftp = ftplib.FTP(FTP_HOST)
+        ftp.login(FTP_USER, FTP_PASS)
+
+        # El resumen va en la carpeta 'analyzed' junto con los otros análisis
+        ftp.cwd('data/analyzed') 
+
+        with open(summary_path, 'rb') as f:
+            ftp.storbinary(f'STOR {Path(summary_path).name}', f)
+
+        ftp.quit()
+        print(f"✓ Resumen batch subido a Hostinger.")
+    except Exception as e:
+        print(f"✗ Error al subir el resumen batch: {e}")
     
     def calculate_batch_stats(self, resultados):
         """Estadísticas generales del batch"""
@@ -475,4 +570,5 @@ def main():
     print("Revisá los archivos *_analysis_agnostic.json para ver resultados detallados")
 
 if __name__ == "__main__":
+
     main()
