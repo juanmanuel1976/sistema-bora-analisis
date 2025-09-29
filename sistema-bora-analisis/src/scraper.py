@@ -76,14 +76,14 @@ class BoraScraperCore:
                     })
             data['metadatos_extraidos']['navegacion'] = navegacion_elementos
             
-            # Extraer contenido principal sin estructura predefinida
-            content_div = soup.find('div', id='page-content') or soup.find('div', class_='contenido')
-            if content_div:
-                # Texto completo limpio
-                data['texto_completo_limpio'] = content_div.get_text(separator='\n', strip=True)
-                
-                # Detectar estructura de manera flexible
-                data['estructura_detectada'] = self.detect_document_structure_flexible(content_div)
+            cuerpo_div = soup.find('div', id='cuerpoDetalleAviso')
+if cuerpo_div:
+    # Texto completo limpio del cuerpo
+    data['texto_completo_limpio'] = cuerpo_div.get_text(separator='\n', strip=True)
+    
+    # Detectar estructura en el cuerpo
+    data['estructura_detectada'] = self.detect_document_structure_flexible(cuerpo_div)
+
             
             # Extraer TODOS los elementos que parezcan firmantes/autoridades
             data['elementos_detectados'] = self.extract_all_potential_signers(soup)
@@ -401,6 +401,7 @@ if __name__ == "__main__":
     
     # Mantener servicio activo indefinidamente
     server.serve_forever()
+
 
 
 
