@@ -1,4 +1,4 @@
-﻿import os
+import os
 import sys
 import json
 import requests
@@ -30,98 +30,98 @@ class BoraScraperCore:
         return session
 
     def get_text_from_measure_page(self, numero_medida, fecha_str):
-    """Extraer contenido de una medida específica - ENFOQUE AGNÓSTICO"""
-    url = f"https://www.boletinoficial.gob.ar/detalleAviso/primera/{numero_medida}/{fecha_str.replace('-', '')}"
-    
-    try:
-        response = self.session.get(url, timeout=30)
+        """Extraer contenido de una medida específica - ENFOQUE AGNÓSTICO"""
+        url = f"https://www.boletinoficial.gob.ar/detalleAviso/primera/{numero_medida}/{fecha_str.replace('-', '')}"
         
-        if response.status_code == 404:
+        try:
+            response = self.session.get(url, timeout=30)
+            
+            if response.status_code == 404:
+                return None
+                
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Detectar fecha REAL del HTML
+            fecha_real = self.extraer_fecha_real_del_html(soup)
+            
+            if not fecha_real:
+                fecha_real = fecha_str
+                advertencia_fecha = f"Fecha no detectada, usando fecha del loop: {fecha_str}"
+            else:
+                advertencia_fecha = None
+            
+            # Estructura agnóstica - guardamos todo raw para análisis posterior
+            data = {
+                'numero_medida': numero_medida,
+                'fecha_boletin': fecha_real,
+                'url': url,
+                'titulo_raw': '',
+                'contenido_html_completo': self.extract_relevant_content_only(soup),
+                'texto_completo_limpio': '',
+                'estructura_detectada': {},
+                'metadatos_extraidos': {},
+                'elementos_detectados': [],
+                'pdf_urls': [],
+                'tiene_pdf': False,
+                'timestamp_scraping': datetime.now().isoformat()
+            }
+            
+            # Extraer título sin categorizar
+            titulo_elem = soup.find('h1') or soup.find('h2', class_='titulo') or soup.find('h2')
+            if titulo_elem:
+                data['titulo_raw'] = titulo_elem.get_text(strip=True)
+            
+            # Extraer TODOS los elementos de navegación/breadcrumb sin asumir estructura
+            navegacion_elementos = []
+            breadcrumb = soup.find('nav', {'aria-label': 'breadcrumb'})
+            if breadcrumb:
+                links = breadcrumb.find_all('a')
+                for link in links:
+                    navegacion_elementos.append({
+                        'texto': link.get_text(strip=True),
+                        'href': link.get('href', ''),
+                        'posicion': len(navegacion_elementos)
+                    })
+            data['metadatos_extraidos']['navegacion'] = navegacion_elementos
+            
+            cuerpo_div = soup.find('div', id='cuerpoDetalleAviso')
+            if cuerpo_div:
+                # Texto completo limpio del cuerpo
+                data['texto_completo_limpio'] = cuerpo_div.get_text(separator='\n', strip=True)
+                
+                # Detectar estructura en el cuerpo
+                data['estructura_detectada'] = self.detect_document_structure_flexible(cuerpo_div)
+            
+            # Extraer TODOS los elementos que parezcan firmantes/autoridades
+            data['elementos_detectados'] = self.extract_all_potential_signers(soup)
+            
+            # Extraer PDFs
+            pdf_links = soup.find_all('a', href=re.compile(r'\.pdf', re.IGNORECASE))
+            for link in pdf_links:
+                pdf_url = link.get('href')
+                if pdf_url:
+                    if not pdf_url.startswith('http'):
+                        pdf_url = 'https://www.boletinoficial.gob.ar' + pdf_url
+                    data['pdf_urls'].append({
+                        'url': pdf_url,
+                        'texto_enlace': link.get_text(strip=True),
+                        'contexto': self.get_link_context(link)
+                    })
+            
+            data['tiene_pdf'] = len(data['pdf_urls']) > 0
+            
+            # Extraer metadatos adicionales sin categorizar
+            data['metadatos_extraidos'].update(self.extract_all_metadata(soup))
+            
+            if advertencia_fecha:
+                data['advertencia_fecha'] = advertencia_fecha
+            
+            return data
+            
+        except Exception as e:
+            print(f"Error procesando medida {numero_medida}: {str(e)}")
             return None
-            
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, 'html.parser')
-        
-        # Detectar fecha REAL del HTML
-        fecha_real = self.extraer_fecha_real_del_html(soup)
-        
-        if not fecha_real:
-            fecha_real = fecha_str
-            advertencia_fecha = f"Fecha no detectada, usando fecha del loop: {fecha_str}"
-        else:
-            advertencia_fecha = None
-        
-        # Estructura agnóstica - guardamos todo raw para análisis posterior
-        data = {
-            'numero_medida': numero_medida,
-            'fecha_boletin': fecha_real,
-            'url': url,
-            'titulo_raw': '',
-            'contenido_html_completo': self.extract_relevant_content_only(soup),
-            'texto_completo_limpio': '',
-            'estructura_detectada': {},
-            'metadatos_extraidos': {},
-            'elementos_detectados': [],
-            'pdf_urls': [],
-            'tiene_pdf': False,
-            'timestamp_scraping': datetime.now().isoformat()
-        }
-        
-        # Extraer título sin categorizar
-        titulo_elem = soup.find('h1') or soup.find('h2', class_='titulo') or soup.find('h2')
-        if titulo_elem:
-            data['titulo_raw'] = titulo_elem.get_text(strip=True)
-        
-        # Extraer TODOS los elementos de navegación/breadcrumb sin asumir estructura
-        navegacion_elementos = []
-        breadcrumb = soup.find('nav', {'aria-label': 'breadcrumb'})
-        if breadcrumb:
-            links = breadcrumb.find_all('a')
-            for link in links:
-                navegacion_elementos.append({
-                    'texto': link.get_text(strip=True),
-                    'href': link.get('href', ''),
-                    'posicion': len(navegacion_elementos)
-                })
-        data['metadatos_extraidos']['navegacion'] = navegacion_elementos
-        
-        cuerpo_div = soup.find('div', id='cuerpoDetalleAviso')
-        if cuerpo_div:
-            # Texto completo limpio del cuerpo
-            data['texto_completo_limpio'] = cuerpo_div.get_text(separator='\n', strip=True)
-            
-            # Detectar estructura en el cuerpo
-            data['estructura_detectada'] = self.detect_document_structure_flexible(cuerpo_div)
-        
-        # Extraer TODOS los elementos que parezcan firmantes/autoridades
-        data['elementos_detectados'] = self.extract_all_potential_signers(soup)
-        
-        # Extraer PDFs
-        pdf_links = soup.find_all('a', href=re.compile(r'\.pdf', re.IGNORECASE))
-        for link in pdf_links:
-            pdf_url = link.get('href')
-            if pdf_url:
-                if not pdf_url.startswith('http'):
-                    pdf_url = 'https://www.boletinoficial.gob.ar' + pdf_url
-                data['pdf_urls'].append({
-                    'url': pdf_url,
-                    'texto_enlace': link.get_text(strip=True),
-                    'contexto': self.get_link_context(link)
-                })
-        
-        data['tiene_pdf'] = len(data['pdf_urls']) > 0
-        
-        # Extraer metadatos adicionales sin categorizar
-        data['metadatos_extraidos'].update(self.extract_all_metadata(soup))
-        
-        if advertencia_fecha:
-            data['advertencia_fecha'] = advertencia_fecha
-        
-        return data
-        
-    except Exception as e:
-        print(f"Error procesando medida {numero_medida}: {str(e)}")
-        return None
 
     def detect_document_structure_flexible(self, content_div):
         """Detectar estructura del documento de manera flexible"""
@@ -246,7 +246,7 @@ class BoraScraperCore:
                 if any(palabra in clase.lower() for palabra in ['tipo', 'category', 'section', 'document', 'official']):
                     clases_relevantes.append({
                         'clase': clase,
-                        'texto': elem.get_text(strip=True)[:100],  # Primeros 100 chars
+                        'texto': elem.get_text(strip=True)[:100],
                         'tag': elem.name
                     })
         metadatos['clases_relevantes'] = clases_relevantes
@@ -262,44 +262,43 @@ class BoraScraperCore:
         return metadatos
 
     def extraer_fecha_real_del_html(self, soup):
-    """Extrae la fecha REAL de publicación desde el HTML"""
-    
-    # MÉTODO 1: Buscar el <small> con "Fecha de publicación"
-    fecha_elem = soup.find('small', string=re.compile(r'Fecha de publicación', re.IGNORECASE))
-    if fecha_elem:
-        texto = fecha_elem.get_text(strip=True)
-        match = re.search(r'(\d{2})/(\d{2})/(\d{4})', texto)
+        """Extrae la fecha REAL de publicación desde el HTML"""
+        
+        # MÉTODO 1: Buscar el <small> con "Fecha de publicación"
+        fecha_elem = soup.find('small', string=re.compile(r'Fecha de publicación', re.IGNORECASE))
+        if fecha_elem:
+            texto = fecha_elem.get_text(strip=True)
+            match = re.search(r'(\d{2})/(\d{2})/(\d{4})', texto)
+            if match:
+                dia, mes, anio = match.groups()
+                return f"{anio}-{mes}-{dia}"
+        
+        # MÉTODO 2 (fallback): Buscar <p> con clase "text-muted"
+        fecha_p = soup.find('p', class_='text-muted')
+        if fecha_p:
+            texto = fecha_p.get_text(strip=True)
+            match = re.search(r'Fecha de publicación\s*(\d{2})/(\d{2})/(\d{4})', texto, re.IGNORECASE)
+            if match:
+                dia, mes, anio = match.groups()
+                return f"{anio}-{mes}-{dia}"
+        
+        # MÉTODO 3: Patrón "e. DD/MM/YYYY"
+        texto_completo = soup.get_text()
+        match = re.search(r'e\.\s+(\d{2})/(\d{2})/(\d{4})', texto_completo)
         if match:
             dia, mes, anio = match.groups()
             return f"{anio}-{mes}-{dia}"
-    
-    # MÉTODO 2 (fallback): Buscar <p> con clase "text-muted"
-    fecha_p = soup.find('p', class_='text-muted')
-    if fecha_p:
-        texto = fecha_p.get_text(strip=True)
-        match = re.search(r'Fecha de publicación\s*(\d{2})/(\d{2})/(\d{4})', texto, re.IGNORECASE)
-        if match:
-            dia, mes, anio = match.groups()
-            return f"{anio}-{mes}-{dia}"
-    
-    # MÉTODO 3: Patrón "e. DD/MM/YYYY"
-    texto_completo = soup.get_text()
-    match = re.search(r'e\.\s+(\d{2})/(\d{2})/(\d{4})', texto_completo)
-    if match:
-        dia, mes, anio = match.groups()
-        return f"{anio}-{mes}-{dia}"
-    
-    return None
+        
+        return None
 
     def scrape_fecha_especifica(self, fecha_str, limit=None):
         """Scraper medidas de una fecha específica - AGNÓSTICO"""
         print(f"Scraping fecha: {fecha_str} (modo agnóstico)")
         
-        # Empezar desde número base más conservador
-        numero_actual = 300720  # Número más bajo para asegurar completitud
+        numero_actual = 300720
         medidas_encontradas = 0
         medidas_consecutivas_404 = 0
-        max_404_consecutivos = 50  # Más tolerante para no perder medidas
+        max_404_consecutivos = 50
         
         while True:
             if limit and medidas_encontradas >= limit:
@@ -318,16 +317,14 @@ class BoraScraperCore:
                 numero_actual += 1
                 continue
             
-            # Reset contador de 404s cuando encontramos una medida
             medidas_consecutivas_404 = 0
             
-            # Guardar medida
             self.save_medida(medida_data)
             medidas_encontradas += 1
             print(f"✓ Medida {numero_actual} guardada (total: {medidas_encontradas})")
             
             numero_actual += 1
-            time.sleep(0.5)  # Pausa más corta para eficiencia
+            time.sleep(0.5)
         
         print(f"Scraping completado. {medidas_encontradas} medidas encontradas.")
         return medidas_encontradas
@@ -353,7 +350,7 @@ class BoraScraperCore:
             print(f"Total acumulado: {total_medidas} medidas")
             
             fecha_actual += timedelta(days=1)
-            time.sleep(2)  # Pausa entre días
+            time.sleep(2)
         
         print(f"\n=== SCRAPING COMPLETADO ===")
         print(f"Total de medidas scrapeadas: {total_medidas}")
@@ -363,17 +360,13 @@ class BoraScraperCore:
         """Guardar medida localmente Y subirla a Hostinger."""
         filename = f"medida_{medida_data['numero_medida']}_{medida_data['fecha_boletin'].replace('-', '')}.json"
         
-        # --- Usa la carpeta temporal del sistema para el archivo local ---
-        # Esto evita problemas si el disco de Render no es persistente
         import tempfile
         temp_dir = tempfile.gettempdir()
         filepath = os.path.join(temp_dir, filename)
 
-        # Guardar en archivo temporal
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(medida_data, f, ensure_ascii=False, indent=2)
         
-        # Subir a Hostinger desde el archivo temporal
         print(f"Guardado localmente en: {filepath}")
         self.upload_to_hostinger(filepath)
 
@@ -382,10 +375,9 @@ class BoraScraperCore:
         import ftplib
         from pathlib import Path
 
-        # --- Configuración FTP ---
         FTP_HOST = "ftp.agoraenlared.com"
         FTP_USER = "u112219758.boria"
-        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?") # Usa variable de entorno o la contraseña directa
+        FTP_PASS = os.getenv('HOSTINGER_FTP_PASSWORD', "Marta1664?")
 
         if not FTP_PASS:
             print("ADVERTENCIA: La contraseña FTP de Hostinger no está configurada.")
@@ -395,23 +387,19 @@ class BoraScraperCore:
             ftp = ftplib.FTP(FTP_HOST)
             ftp.login(FTP_USER, FTP_PASS)
 
-            # Navegar a la carpeta correcta en Hostinger
-            # La cuenta FTP 'boria' ya apunta a /public_html/boria
             target_dir = 'data/raw'
             try:
                 ftp.cwd(target_dir)
             except ftplib.error_perm:
-                # Si falla, es porque los directorios no existen. Los creamos.
                 print(f"Directorio '{target_dir}' no encontrado, creando...")
                 base_dir, sub_dir = target_dir.split('/')
                 try:
                     ftp.mkd(base_dir)
                 except ftplib.error_perm:
-                    pass # El directorio base ya existe
+                    pass
                 ftp.mkd(target_dir)
                 ftp.cwd(target_dir)
 
-            # Subir el archivo
             filename = Path(local_filepath).name
             with open(local_filepath, 'rb') as f:
                 ftp.storbinary(f'STOR {filename}', f)
@@ -441,7 +429,6 @@ class BoraScraperCore:
                     data = json.load(f)
                     stats['fechas_cubiertas'].add(data['fecha_boletin'])
                     
-                    # Extraer organismos de navegación
                     nav = data.get('metadatos_extraidos', {}).get('navegacion', [])
                     for elem in nav:
                         if elem['texto']:
@@ -449,35 +436,11 @@ class BoraScraperCore:
             except Exception as e:
                 print(f"Error leyendo {json_file}: {e}")
         
-        # Convertir sets a listas para JSON
         stats['fechas_cubiertas'] = sorted(list(stats['fechas_cubiertas']))
         stats['organismos_detectados'] = sorted(list(stats['organismos_detectados']))
         stats['tipos_documento_detectados'] = sorted(list(stats['tipos_documento_detectados']))
         
         return stats
-
-def main():
-    print("=== SISTEMA DE SCRAPING BOLETÍN OFICIAL AGNÓSTICO ===")
-    print("Modo TEST: Scraping limitado sin categorías predefinidas")
-    
-    scraper = BoraScraperCore()
-    
-    # Test con fecha específica y límite
-    fecha_test = "2023-12-11"  # Primera fecha del gobierno
-    limite_test = 5
-    
-    print(f"Iniciando test agnóstico: {limite_test} medidas del {fecha_test}")
-    medidas_encontradas = scraper.scrape_fecha_especifica(fecha_test, limit=limite_test)
-    
-    print(f"\nTest completado. {medidas_encontradas} medidas guardadas.")
-    print("Revisá la carpeta 'data' para ver los resultados.")
-    
-    # Mostrar estadísticas
-    stats = scraper.get_scraping_stats()
-    print(f"\nEstadísticas del scraping:")
-    print(f"- Total medidas: {stats['total_medidas']}")
-    print(f"- Fechas cubiertas: {stats['fechas_cubiertas']}")
-    print(f"- Organismos detectados: {len(stats['organismos_detectados'])}")
 
 if __name__ == "__main__":
     import argparse
@@ -513,12 +476,3 @@ if __name__ == "__main__":
         server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
         print(f"Servidor web activo en puerto {port}")
         server.serve_forever()
-
-
-
-
-
-
-
-
-
