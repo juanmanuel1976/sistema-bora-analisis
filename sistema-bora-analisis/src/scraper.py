@@ -43,9 +43,18 @@ class BoraScraperCore:
             soup = BeautifulSoup(response.content, 'html.parser')
             
             # Estructura agnóstica - guardamos todo raw para análisis posterior
+            
+            # Detectar fecha REAL del HTML
+fecha_real = self.extraer_fecha_real_del_html(soup)
+
+if not fecha_real:
+    fecha_real = fecha_str
+    advertencia_fecha = f"Fecha no detectada, usando fecha del loop: {fecha_str}"
+else:
+    advertencia_fecha = None
             data = {
                 'numero_medida': numero_medida,
-                'fecha_boletin': fecha_str,
+                'fecha_boletin': fecha_real,
                 'url': url,
                 'titulo_raw': '',
                 'contenido_html_completo': self.extract_relevant_content_only(soup),
@@ -104,7 +113,8 @@ class BoraScraperCore:
             
             # Extraer metadatos adicionales sin categorizar
             data['metadatos_extraidos'].update(self.extract_all_metadata(soup))
-            
+            if advertencia_fecha:
+    data['advertencia_fecha'] = advertencia_fecha
             return data
             
         except Exception as e:
@@ -248,6 +258,36 @@ class BoraScraperCore:
         metadatos['numeros_referencia'] = list(set(numeros_referencia))
         
         return metadatos
+
+    def extraer_fecha_real_del_html(self, soup):
+    """Extrae la fecha REAL de publicación desde el HTML"""
+    
+    # MÉTODO 1: Buscar el <small> con "Fecha de publicación"
+    fecha_elem = soup.find('small', string=re.compile(r'Fecha de publicación', re.IGNORECASE))
+    if fecha_elem:
+        texto = fecha_elem.get_text(strip=True)
+        match = re.search(r'(\d{2})/(\d{2})/(\d{4})', texto)
+        if match:
+            dia, mes, anio = match.groups()
+            return f"{anio}-{mes}-{dia}"
+    
+    # MÉTODO 2 (fallback): Buscar <p> con clase "text-muted"
+    fecha_p = soup.find('p', class_='text-muted')
+    if fecha_p:
+        texto = fecha_p.get_text(strip=True)
+        match = re.search(r'Fecha de publicación\s*(\d{2})/(\d{2})/(\d{4})', texto, re.IGNORECASE)
+        if match:
+            dia, mes, anio = match.groups()
+            return f"{anio}-{mes}-{dia}"
+    
+    # MÉTODO 3: Patrón "e. DD/MM/YYYY"
+    texto_completo = soup.get_text()
+    match = re.search(r'e\.\s+(\d{2})/(\d{2})/(\d{4})', texto_completo)
+    if match:
+        dia, mes, anio = match.groups()
+        return f"{anio}-{mes}-{dia}"
+    
+    return None
 
     def scrape_fecha_especifica(self, fecha_str, limit=None):
         """Scraper medidas de una fecha específica - AGNÓSTICO"""
@@ -471,6 +511,7 @@ if __name__ == "__main__":
         server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
         print(f"Servidor web activo en puerto {port}")
         server.serve_forever()
+
 
 
 
