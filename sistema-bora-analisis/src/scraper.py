@@ -438,25 +438,39 @@ def main():
     print(f"- Organismos detectados: {len(stats['organismos_detectados'])}")
 
 if __name__ == "__main__":
-    import os
+    import argparse
     from http.server import HTTPServer, SimpleHTTPRequestHandler
     
-    # Ejecutar scraping PRIMERO
-    main()
+    parser = argparse.ArgumentParser(description='Scraper BORA')
+    parser.add_argument('--mode', choices=['test', 'sistematico', 'server'], 
+                       default='test', help='Modo de ejecución')
+    parser.add_argument('--fecha-inicio', default='2023-12-11', 
+                       help='Fecha inicio formato YYYY-MM-DD')
+    parser.add_argument('--fecha-fin', default='2025-09-29', 
+                       help='Fecha fin formato YYYY-MM-DD')
+    parser.add_argument('--limit', type=int, default=5, 
+                       help='Límite de medidas en modo test')
     
-    # Mantener servicio web activo para Render
-    port = int(os.environ.get('PORT', 10000))
+    args = parser.parse_args()
     
-    # Cambiar directorio para servir archivos JSON generados
-    os.chdir('data')
+    scraper = BoraScraperCore()
     
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    print(f"Servidor web activo en puerto {port}")
-    print(f"Sirviendo archivos desde: {os.getcwd()}")
-    print(f"Acceso: https://tu-app.onrender.com")
-    
-    # Mantener servicio activo indefinidamente
-    server.serve_forever()
+    if args.mode == 'test':
+        print(f"=== MODO TEST: {args.limit} medidas ===")
+        scraper.scrape_fecha_especifica("2023-12-11", limit=args.limit)
+        
+    elif args.mode == 'sistematico':
+        print(f"=== SCRAPING SISTEMÁTICO ===")
+        print(f"Desde: {args.fecha_inicio} hasta: {args.fecha_fin}")
+        scraper.scrape_sistematico(args.fecha_inicio, args.fecha_fin)
+        
+    elif args.mode == 'server':
+        port = int(os.environ.get('PORT', 10000))
+        if os.path.exists('data'):
+            os.chdir('data')
+        server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+        print(f"Servidor web activo en puerto {port}")
+        server.serve_forever()
 
 
 
