@@ -30,96 +30,98 @@ class BoraScraperCore:
         return session
 
     def get_text_from_measure_page(self, numero_medida, fecha_str):
-        """Extraer contenido de una medida específica - ENFOQUE AGNÓSTICO"""
-        url = f"https://www.boletinoficial.gob.ar/detalleAviso/primera/{numero_medida}/{fecha_str.replace('-', '')}"
+    """Extraer contenido de una medida específica - ENFOQUE AGNÓSTICO"""
+    url = f"https://www.boletinoficial.gob.ar/detalleAviso/primera/{numero_medida}/{fecha_str.replace('-', '')}"
+    
+    try:
+        response = self.session.get(url, timeout=30)
         
-        try:
-            response = self.session.get(url, timeout=30)
-            
-            if response.status_code == 404:
-                return None
-                
-            response.raise_for_status()
-            soup = BeautifulSoup(response.content, 'html.parser')
-            
-            # Estructura agnóstica - guardamos todo raw para análisis posterior
-            
-            # Detectar fecha REAL del HTML
-fecha_real = self.extraer_fecha_real_del_html(soup)
-
-if not fecha_real:
-    fecha_real = fecha_str
-    advertencia_fecha = f"Fecha no detectada, usando fecha del loop: {fecha_str}"
-else:
-    advertencia_fecha = None
-            data = {
-                'numero_medida': numero_medida,
-                'fecha_boletin': fecha_real,
-                'url': url,
-                'titulo_raw': '',
-                'contenido_html_completo': self.extract_relevant_content_only(soup),
-                'texto_completo_limpio': '',
-                'estructura_detectada': {},
-                'metadatos_extraidos': {},
-                'elementos_detectados': [],
-                'pdf_urls': [],
-                'tiene_pdf': False,
-                'timestamp_scraping': datetime.now().isoformat()
-            }
-            
-            # Extraer título sin categorizar
-            titulo_elem = soup.find('h1') or soup.find('h2', class_='titulo') or soup.find('h2')
-            if titulo_elem:
-                data['titulo_raw'] = titulo_elem.get_text(strip=True)
-            
-            # Extraer TODOS los elementos de navegación/breadcrumb sin asumir estructura
-            navegacion_elementos = []
-            breadcrumb = soup.find('nav', {'aria-label': 'breadcrumb'})
-            if breadcrumb:
-                links = breadcrumb.find_all('a')
-                for link in links:
-                    navegacion_elementos.append({
-                        'texto': link.get_text(strip=True),
-                        'href': link.get('href', ''),
-                        'posicion': len(navegacion_elementos)
-                    })
-            data['metadatos_extraidos']['navegacion'] = navegacion_elementos
-            
-            cuerpo_div = soup.find('div', id='cuerpoDetalleAviso')
-            if cuerpo_div:
-                # Texto completo limpio del cuerpo
-                data['texto_completo_limpio'] = cuerpo_div.get_text(separator='\n', strip=True)
-                
-                # Detectar estructura en el cuerpo
-                data['estructura_detectada'] = self.detect_document_structure_flexible(cuerpo_div)
-            
-            # Extraer TODOS los elementos que parezcan firmantes/autoridades
-            data['elementos_detectados'] = self.extract_all_potential_signers(soup)
-            
-            # Extraer PDFs
-            pdf_links = soup.find_all('a', href=re.compile(r'\.pdf', re.IGNORECASE))
-            for link in pdf_links:
-                pdf_url = link.get('href')
-                if pdf_url:
-                    if not pdf_url.startswith('http'):
-                        pdf_url = 'https://www.boletinoficial.gob.ar' + pdf_url
-                    data['pdf_urls'].append({
-                        'url': pdf_url,
-                        'texto_enlace': link.get_text(strip=True),
-                        'contexto': self.get_link_context(link)
-                    })
-            
-            data['tiene_pdf'] = len(data['pdf_urls']) > 0
-            
-            # Extraer metadatos adicionales sin categorizar
-            data['metadatos_extraidos'].update(self.extract_all_metadata(soup))
-            if advertencia_fecha:
-    data['advertencia_fecha'] = advertencia_fecha
-            return data
-            
-        except Exception as e:
-            print(f"Error procesando medida {numero_medida}: {str(e)}")
+        if response.status_code == 404:
             return None
+            
+        response.raise_for_status()
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Detectar fecha REAL del HTML
+        fecha_real = self.extraer_fecha_real_del_html(soup)
+        
+        if not fecha_real:
+            fecha_real = fecha_str
+            advertencia_fecha = f"Fecha no detectada, usando fecha del loop: {fecha_str}"
+        else:
+            advertencia_fecha = None
+        
+        # Estructura agnóstica - guardamos todo raw para análisis posterior
+        data = {
+            'numero_medida': numero_medida,
+            'fecha_boletin': fecha_real,
+            'url': url,
+            'titulo_raw': '',
+            'contenido_html_completo': self.extract_relevant_content_only(soup),
+            'texto_completo_limpio': '',
+            'estructura_detectada': {},
+            'metadatos_extraidos': {},
+            'elementos_detectados': [],
+            'pdf_urls': [],
+            'tiene_pdf': False,
+            'timestamp_scraping': datetime.now().isoformat()
+        }
+        
+        # Extraer título sin categorizar
+        titulo_elem = soup.find('h1') or soup.find('h2', class_='titulo') or soup.find('h2')
+        if titulo_elem:
+            data['titulo_raw'] = titulo_elem.get_text(strip=True)
+        
+        # Extraer TODOS los elementos de navegación/breadcrumb sin asumir estructura
+        navegacion_elementos = []
+        breadcrumb = soup.find('nav', {'aria-label': 'breadcrumb'})
+        if breadcrumb:
+            links = breadcrumb.find_all('a')
+            for link in links:
+                navegacion_elementos.append({
+                    'texto': link.get_text(strip=True),
+                    'href': link.get('href', ''),
+                    'posicion': len(navegacion_elementos)
+                })
+        data['metadatos_extraidos']['navegacion'] = navegacion_elementos
+        
+        cuerpo_div = soup.find('div', id='cuerpoDetalleAviso')
+        if cuerpo_div:
+            # Texto completo limpio del cuerpo
+            data['texto_completo_limpio'] = cuerpo_div.get_text(separator='\n', strip=True)
+            
+            # Detectar estructura en el cuerpo
+            data['estructura_detectada'] = self.detect_document_structure_flexible(cuerpo_div)
+        
+        # Extraer TODOS los elementos que parezcan firmantes/autoridades
+        data['elementos_detectados'] = self.extract_all_potential_signers(soup)
+        
+        # Extraer PDFs
+        pdf_links = soup.find_all('a', href=re.compile(r'\.pdf', re.IGNORECASE))
+        for link in pdf_links:
+            pdf_url = link.get('href')
+            if pdf_url:
+                if not pdf_url.startswith('http'):
+                    pdf_url = 'https://www.boletinoficial.gob.ar' + pdf_url
+                data['pdf_urls'].append({
+                    'url': pdf_url,
+                    'texto_enlace': link.get_text(strip=True),
+                    'contexto': self.get_link_context(link)
+                })
+        
+        data['tiene_pdf'] = len(data['pdf_urls']) > 0
+        
+        # Extraer metadatos adicionales sin categorizar
+        data['metadatos_extraidos'].update(self.extract_all_metadata(soup))
+        
+        if advertencia_fecha:
+            data['advertencia_fecha'] = advertencia_fecha
+        
+        return data
+        
+    except Exception as e:
+        print(f"Error procesando medida {numero_medida}: {str(e)}")
+        return None
 
     def detect_document_structure_flexible(self, content_div):
         """Detectar estructura del documento de manera flexible"""
@@ -511,6 +513,7 @@ if __name__ == "__main__":
         server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
         print(f"Servidor web activo en puerto {port}")
         server.serve_forever()
+
 
 
 
