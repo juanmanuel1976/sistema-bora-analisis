@@ -19,6 +19,45 @@ def conectar_ftp():
     ftp.login(FTP_USER, FTP_PASS)
     return ftp
 
+def encontrar_directorio_raw(ftp):
+    """Prueba múltiples rutas hasta encontrar /raw/"""
+    rutas_posibles = [
+        'boria/data/raw',
+        'public_html/boria/data/raw',
+        '/public_html/boria/data/raw',
+        'htdocs/boria/data/raw',
+        'www/boria/data/raw',
+    ]
+    
+    # Ver dónde estamos
+    dir_inicial = ftp.pwd()
+    print(f"Directorio inicial FTP: {dir_inicial}")
+    
+    # Probar cada ruta
+    for ruta in rutas_posibles:
+        try:
+            ftp.cwd(ruta)
+            dir_actual = ftp.pwd()
+            print(f"OK - Encontrado en: {dir_actual}")
+            return True
+        except:
+            # Volver al inicio y seguir probando
+            try:
+                ftp.cwd(dir_inicial)
+            except:
+                pass
+    
+    # Si ninguna funcionó, listar qué hay y fallar explícitamente
+    print("\nERROR - No se encontró el directorio. Contenido del directorio actual:")
+    try:
+        contenido = ftp.nlst()
+        for item in contenido[:20]:  # Primeros 20
+            print(f"  - {item}")
+    except:
+        pass
+    
+    return False
+
 def extraer_tipo_desde_h2(html_titulo):
     if not html_titulo:
         return "SIN_TIPO"
@@ -42,10 +81,31 @@ def main():
     # Conexión inicial
     print("\nConectando FTP...")
     ftp = conectar_ftp()
-    ftp.cwd('/public_html/boria/data/raw/')
-    archivos = [f for f in ftp.nlst() if f.endswith('.json')]
-    total = len(archivos)
-    print(f"Total: {total} archivos")
+    print("OK - Conectado")
+    
+    # Encontrar directorio correcto
+    print("\nBuscando directorio /raw/...")
+    if not encontrar_directorio_raw(ftp):
+        print("\nFATAL - No se pudo encontrar el directorio con los JSON")
+        print("Revisa manualmente la estructura FTP y actualiza las rutas")
+        ftp.quit()
+        return
+    
+    # Listar archivos
+    print("\nListando archivos JSON...")
+    try:
+        archivos = [f for f in ftp.nlst() if f.endswith('.json')]
+        total = len(archivos)
+        print(f"Total: {total} archivos")
+    except Exception as e:
+        print(f"ERROR al listar archivos: {e}")
+        ftp.quit()
+        return
+    
+    if total == 0:
+        print("ERROR - No se encontraron archivos JSON")
+        ftp.quit()
+        return
     
     # Variables de análisis
     tipos = defaultdict(int)
@@ -55,7 +115,7 @@ def main():
     start = time.time()
     RECONEXION_CADA = 5000
     
-    print(f"\nProcesando (reconexión cada {RECONEXION_CADA} archivos)...\n")
+    print(f"\nProcesando (reconexión cada {RECONEXION_CADA})...\n")
     
     for idx, archivo in enumerate(archivos, 1):
         
@@ -67,8 +127,8 @@ def main():
             except:
                 pass
             ftp = conectar_ftp()
-            ftp.cwd('/public_html/boria/data/raw/')
-            print(f"OK - Reconexión exitosa en archivo {idx}")
+            encontrar_directorio_raw(ftp)  # Volver al directorio correcto
+            print(f"OK - Reconexión en archivo {idx}")
         
         try:
             # Descargar y procesar
@@ -131,15 +191,35 @@ def main():
         pass
     
     ftp = conectar_ftp()
-    ftp.cwd('/public_html/boria/')
     
-    with open('tipos_desde_h2.csv', 'rb') as f:
-        ftp.storbinary('STOR tipos_desde_h2.csv', f)
-    print("CSV: OK")
+    # Navegar a carpeta boria (un nivel arriba de raw)
+    rutas_destino = [
+        'boria',
+        'public_html/boria',
+        '/public_html/boria'
+    ]
     
-    with open('ejemplos_h2_completos.json', 'rb') as f:
-        ftp.storbinary('STOR ejemplos_h2_completos.json', f)
-    print("JSON: OK")
+    subida_ok = False
+    for ruta in rutas_destino:
+        try:
+            ftp.cwd(ruta)
+            
+            with open('tipos_desde_h2.csv', 'rb') as f:
+                ftp.storbinary('STOR tipos_desde_h2.csv', f)
+            print("CSV: OK")
+            
+            with open('ejemplos_h2_completos.json', 'rb') as f:
+                ftp.storbinary('STOR ejemplos_h2_completos.json', f)
+            print("JSON: OK")
+            
+            subida_ok = True
+            break
+        except:
+            pass
+    
+    if not subida_ok:
+        print("ADVERTENCIA - No se pudieron subir los archivos")
+        print("Los archivos quedaron en el servidor de Render")
     
     ftp.quit()
     
