@@ -1,130 +1,159 @@
-from ftplib import FTP
+import ftplib
 import json
-from collections import Counter
 import pandas as pd
-import io
+from collections import defaultdict
+from datetime import datetime
+import time
 from bs4 import BeautifulSoup
 import re
+import os
 
-def extraer_tipo_desde_h2(medida):
+FTP_HOST = 'ftp.agoraenlared.com'
+FTP_USER = 'u112219758.boria'
+FTP_PASS = 'Marta1664?'
+
+def conectar_ftp():
+    """Conecta al FTP y retorna el objeto"""
+    ftp = ftplib.FTP()
+    ftp.connect(FTP_HOST, 21, timeout=60)
+    ftp.login(FTP_USER, FTP_PASS)
+    return ftp
+
+def extraer_tipo_desde_h2(html_titulo):
+    if not html_titulo:
+        return "SIN_TIPO"
     try:
-        html_titulo = medida.get('contenido_html_completo', {}).get('titulo', '')
-        if not html_titulo:
-            return 'SIN_H2'
-        
         soup = BeautifulSoup(html_titulo, 'html.parser')
         h2 = soup.find('h2')
-        if not h2:
-            return 'SIN_H2'
-        
-        texto_h2 = h2.get_text(strip=True)
-        match = re.match(r'^([A-Za-zÁÉÍÓÚáéíóúñÑ\s]+?)(?:\s+N°?\s*\d|\s+\d)', texto_h2)
-        
-        if match:
-            return match.group(1).strip()
-        
-        partes = re.split(r'\d', texto_h2, 1)
-        return partes[0].strip() if partes else texto_h2
-        
+        if h2:
+            texto = h2.get_text(strip=True)
+            texto = re.sub(r'\d+/\d{4}', '', texto)
+            texto = re.sub(r'N°\s*\d+', '', texto)
+            return texto.strip() or "SIN_TIPO"
     except:
-        return 'ERROR'
+        pass
+    return "SIN_TIPO"
 
 def main():
-    print("Conectando a FTP...")
-    ftp = FTP("ftp.agoraenlared.com", timeout=60)
-    ftp.set_pasv(True)
-    ftp.login("u112219758.boria", "Marta1664?")
-    ftp.cwd("data/raw")
-    ftp.sendcmd("TYPE I")
+    print("="*70)
+    print(f"INICIO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*70)
     
+    # Conexión inicial
+    print("\nConectando FTP...")
+    ftp = conectar_ftp()
+    ftp.cwd('/public_html/boria/data/raw/')
     archivos = [f for f in ftp.nlst() if f.endswith('.json')]
     total = len(archivos)
-    print(f"Total: {total}\n")
+    print(f"Total: {total} archivos")
     
-    tipos = Counter()
-    ejemplos_h2 = {}
-    tiene_pdf_por_tipo = Counter()
-    errores = 0
+    # Variables de análisis
+    tipos = defaultdict(int)
+    con_pdf = defaultdict(int)
+    ejemplos = defaultdict(list)
     
-    for i, archivo in enumerate(archivos):
-        if i % 1000 == 0:
-            print(f"{i}/{total} ({i/total*100:.1f}%)")
+    start = time.time()
+    RECONEXION_CADA = 5000
+    
+    print(f"\nProcesando (reconexión cada {RECONEXION_CADA} archivos)...\n")
+    
+    for idx, archivo in enumerate(archivos, 1):
+        
+        # RECONECTAR cada 5000 archivos
+        if idx % RECONEXION_CADA == 0:
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Reconectando FTP...")
+            try:
+                ftp.quit()
+            except:
+                pass
+            ftp = conectar_ftp()
+            ftp.cwd('/public_html/boria/data/raw/')
+            print(f"OK - Reconexión exitosa en archivo {idx}")
         
         try:
-            buffer = io.BytesIO()
-            ftp.retrbinary(f'RETR {archivo}', buffer.write)
-            buffer.seek(0)
-            medida = json.load(buffer)
+            # Descargar y procesar
+            with open('temp.json', 'wb') as f:
+                ftp.retrbinary(f'RETR {archivo}', f.write)
             
-            tipo = extraer_tipo_desde_h2(medida)
+            with open('temp.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            html_titulo = data.get('contenido_html_completo', {}).get('titulo', '')
+            tipo = extraer_tipo_desde_h2(html_titulo)
+            
             tipos[tipo] += 1
+            if data.get('tiene_pdf', False):
+                con_pdf[tipo] += 1
             
-            if tipo not in ejemplos_h2:
-                ejemplos_h2[tipo] = []
-            
-            if len(ejemplos_h2[tipo]) < 5:
-                html_titulo = medida.get('contenido_html_completo', {}).get('titulo', '')
-                soup = BeautifulSoup(html_titulo, 'html.parser')
-                h2_text = soup.find('h2').get_text(strip=True) if soup.find('h2') else 'N/A'
-                
-                ejemplos_h2[tipo].append({
-                    'h2_completo': h2_text,
-                    'fecha': medida.get('fecha_boletin', ''),
-                    'tiene_pdf': medida.get('tiene_pdf', False)
+            if len(ejemplos[tipo]) < 5:
+                ejemplos[tipo].append({
+                    'numero': data.get('numero_medida'),
+                    'fecha': data.get('fecha_boletin'),
+                    'titulo': data.get('titulo_raw', '')[:80]
                 })
-            
-            if medida.get('tiene_pdf', False):
-                tiene_pdf_por_tipo[tipo] += 1
         
         except Exception as e:
-            errores += 1
-            if errores <= 5:
-                print(f"Error: {str(e)[:50]}")
-            continue
+            print(f"Error {archivo}: {str(e)[:50]}")
+        
+        # Progreso cada 1000
+        if idx % 1000 == 0:
+            elapsed = time.time() - start
+            rate = idx / elapsed
+            eta_min = int((total - idx) / rate / 60)
+            pct = (idx / total) * 100
+            print(f"{idx}/{total} ({pct:.1f}%) - ETA: {eta_min} min")
+    
+    print(f"\nProcesamiento: {int((time.time()-start)/60)} minutos")
+    
+    # Generar archivos
+    print("\nGenerando resultados...")
+    df = pd.DataFrame([
+        {
+            'Tipo': tipo,
+            'Cantidad': count,
+            'Porcentaje': f"{(count/total)*100:.2f}%",
+            'Con_PDF': con_pdf[tipo]
+        }
+        for tipo, count in sorted(tipos.items(), key=lambda x: x[1], reverse=True)
+    ])
+    df.to_csv('tipos_desde_h2.csv', index=False, encoding='utf-8')
+    
+    with open('ejemplos_h2_completos.json', 'w', encoding='utf-8') as f:
+        json.dump(ejemplos, f, ensure_ascii=False, indent=2)
+    
+    print("Archivos locales: OK")
+    
+    # Subir (con NUEVA conexión)
+    print("\nSubiendo a Hostinger...")
+    try:
+        ftp.quit()
+    except:
+        pass
+    
+    ftp = conectar_ftp()
+    ftp.cwd('/public_html/boria/')
+    
+    with open('tipos_desde_h2.csv', 'rb') as f:
+        ftp.storbinary('STOR tipos_desde_h2.csv', f)
+    print("CSV: OK")
+    
+    with open('ejemplos_h2_completos.json', 'rb') as f:
+        ftp.storbinary('STOR ejemplos_h2_completos.json', f)
+    print("JSON: OK")
     
     ftp.quit()
     
-    print(f"\nProcesadas: {total - errores}, Errores: {errores}\n")
+    # Cleanup
+    try:
+        os.remove('temp.json')
+    except:
+        pass
     
-    resultados = []
-    for tipo, cantidad in tipos.most_common():
-        pct_pdf = (tiene_pdf_por_tipo.get(tipo, 0) / cantidad * 100) if cantidad > 0 else 0
-        ejemplo = ejemplos_h2[tipo][0]['h2_completo'] if tipo in ejemplos_h2 else ''
-        
-        resultados.append({
-            'Tipo': tipo,
-            'Cantidad': cantidad,
-            'Porcentaje': f"{cantidad/total*100:.2f}%",
-            'Con_PDF': tiene_pdf_por_tipo.get(tipo, 0),
-            'Pct_PDF': f"{pct_pdf:.1f}%",
-            'Ejemplo_H2': ejemplo[:80]
-        })
-    
-    df = pd.DataFrame(resultados)
-    df.to_csv('tipos_desde_h2.csv', index=False, encoding='utf-8')
-    
-    print("="*120)
-    print("TODOS LOS TIPOS")
-    print("="*120)
-    print(df.to_string(index=False, max_rows=None))
-    
-    with open('ejemplos_h2_completos.json', 'w', encoding='utf-8') as f:
-        json.dump(ejemplos_h2, f, ensure_ascii=False, indent=2)
-    
-    # Subir resultados al FTP
-    print("\nSubiendo resultados...")
-    ftp_up = FTP("ftp.agoraenlared.com", timeout=60)
-    ftp_up.set_pasv(True)
-    ftp_up.login("u112219758.boria", "Marta1664?")
-    
-    with open('tipos_desde_h2.csv', 'rb') as f:
-        ftp_up.storbinary('STOR tipos_desde_h2.csv', f)
-    
-    with open('ejemplos_h2_completos.json', 'rb') as f:
-        ftp_up.storbinary('STOR ejemplos_h2_completos.json', f)
-    
-    ftp_up.quit()
-    print("Resultados en Hostinger raíz")
+    print("\n" + "="*70)
+    print(f"FIN: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("="*70)
+    print("\nhttps://boria.agoraenlared.com/tipos_desde_h2.csv")
+    print("https://boria.agoraenlared.com/ejemplos_h2_completos.json")
 
 if __name__ == "__main__":
     main()
