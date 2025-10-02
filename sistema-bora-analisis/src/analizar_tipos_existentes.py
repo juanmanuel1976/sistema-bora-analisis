@@ -20,45 +20,38 @@ def conectar_ftp():
     return ftp
 
 def encontrar_directorio_raw(ftp):
-    """Prueba múltiples rutas hasta encontrar /raw/"""
-    rutas_posibles = [
-        'data/raw',
-        'boria/data/raw',
-        'public_html/boria/data/raw',
-        '/public_html/boria/data/raw',
-        'htdocs/boria/data/raw',
-        'www/boria/data/raw',
-    ]
-    
-    # Ver dónde estamos
+    """Navega directamente a 'data/raw' y muestra el error real si falla."""
     dir_inicial = ftp.pwd()
     print(f"Directorio inicial FTP: {dir_inicial}")
     
-    # Probar cada ruta
-    for ruta in rutas_posibles:
-        try:
-            ftp.cwd(ruta)
-            dir_actual = ftp.pwd()
-            print(f"OK - Encontrado en: {dir_actual}")
-            return True
-        except:
-            # Volver al inicio y seguir probando
-            try:
-                ftp.cwd(dir_inicial)
-            except:
-                pass
+    # Vamos directamente a la ruta que sabemos que es correcta
+    ruta_correcta = 'data/raw'
     
-    # Si ninguna funcionó, listar qué hay y fallar explícitamente
-    print("\nERROR - No se encontró el directorio. Contenido del directorio actual:")
     try:
-        contenido = ftp.nlst()
-        for item in contenido[:20]:  # Primeros 20
-            print(f"  - {item}")
-    except:
-        pass
-    
-    return False
-
+        print(f"Intentando navegar directamente a '{ruta_correcta}'...")
+        ftp.cwd(ruta_correcta)
+        dir_actual = ftp.pwd()
+        print(f"OK - Encontrado exitosamente en: {dir_actual}")
+        return True
+    except Exception as e:
+        # Este es el cambio clave: AHORA VEREMOS EL ERROR REAL
+        print(f"\n--- ERROR DETALLADO ---")
+        print(f"FALLO al intentar entrar a la carpeta '{ruta_correcta}'.")
+        print(f"El error técnico es: {e}")
+        print(f"----------------------")
+        
+        print("\nContenido del directorio desde donde se intentó entrar:")
+        try:
+            # Volvemos al directorio inicial para listar su contenido
+            ftp.cwd(dir_inicial)
+            contenido = ftp.nlst()
+            for item in contenido:
+                print(f"  - {item}")
+        except:
+            print("  - No se pudo listar el contenido para diagnóstico.")
+            
+        return False
+        
 def extraer_tipo_desde_h2(html_titulo):
     if not html_titulo:
         return "SIN_TIPO"
