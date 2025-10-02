@@ -22,6 +22,7 @@ def conectar_ftp():
 def encontrar_directorio_raw(ftp):
     """Prueba múltiples rutas hasta encontrar /raw/"""
     rutas_posibles = [
+        'data/raw',
         'boria/data/raw',
         'public_html/boria/data/raw',
         '/public_html/boria/data/raw',
@@ -181,8 +182,6 @@ def main():
     with open('ejemplos_h2_completos.json', 'w', encoding='utf-8') as f:
         json.dump(ejemplos, f, ensure_ascii=False, indent=2)
     
-    print("Archivos locales: OK")
-    
     # Subir (con NUEVA conexión)
     print("\nSubiendo a Hostinger...")
     try:
@@ -192,34 +191,16 @@ def main():
     
     ftp = conectar_ftp()
     
-    # Navegar a carpeta boria (un nivel arriba de raw)
-    rutas_destino = [
-        'boria',
-        'public_html/boria',
-        '/public_html/boria'
-    ]
-    
-    subida_ok = False
-    for ruta in rutas_destino:
-        try:
-            ftp.cwd(ruta)
-            
-            with open('tipos_desde_h2.csv', 'rb') as f:
-                ftp.storbinary('STOR tipos_desde_h2.csv', f)
-            print("CSV: OK")
-            
-            with open('ejemplos_h2_completos.json', 'rb') as f:
-                ftp.storbinary('STOR ejemplos_h2_completos.json', f)
-            print("JSON: OK")
-            
-            subida_ok = True
-            break
-        except:
-            pass
-    
-    if not subida_ok:
-        print("ADVERTENCIA - No se pudieron subir los archivos")
-        print("Los archivos quedaron en el servidor de Render")
+    try:
+        with open('tipos_desde_h2.csv', 'rb') as f:
+            ftp.storbinary('STOR tipos_desde_h2.csv', f)
+        print("CSV: OK")
+        
+        with open('ejemplos_h2_completos.json', 'rb') as f:
+            ftp.storbinary('STOR ejemplos_h2_completos.json', f)
+        print("JSON: OK")
+    except Exception as e:
+        print(f"ERROR al subir: {e}")
     
     ftp.quit()
     
