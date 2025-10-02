@@ -15,3 +15,13 @@ services:
         sync: false
       - key: PYTHONPATH
         value: /opt/render/project/src/
+
+  - type: worker
+    name: analisis-tipos-bora
+    env: python
+    plan: free
+    buildCommand: pip install -r config/requirements.txt
+    startCommand: python src/analizar_tipos_existentes.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
